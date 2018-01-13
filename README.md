@@ -1,4 +1,4 @@
-# Get-ExchangeVersions
+# Get-ExchangeVersion
 
 Retrieves Exchange server version information using registry for rollup info
 Outputs objects which can be post-processed or filtered.
