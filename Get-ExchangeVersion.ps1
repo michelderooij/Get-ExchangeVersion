@@ -10,7 +10,7 @@
 	THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE 
 	RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
 	
-	Version 1.31, June 28th, 2017
+	Version 1.32, January 13th, 2018
 	
 	.DESCRIPTION
 	Retrieves Exchange server version information using registry for rollup info
@@ -28,9 +28,11 @@
              Fixed patchless Exchange 2010 output issue
 	1.3  Added Exchange 2016 support
         1.31 Fixed layout bug for 4-digit build no.
+        1.32 Added EMS check
+             Renamed to Get-ExchangeVersion
 
 	.EXAMPLE
-	Get-ExchangeVersions.ps1
+	Get-ExchangeVersion.ps1
 #>
 
 #Requires -Version 1.0
@@ -78,8 +80,8 @@ Function getExchVersion( $Server) {
 	$MainKey= "SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\$prodguid\"
 
 	$displayVersion= $reg.OpenSubKey("$MainKey\InstallProperties").GetValue( "DisplayVersion")
-    $maxMajor= [regex]::match( $displayVersion, "^\d{1,4}\.\d{1,4}").value
-    $maxMinor= [regex]::match( $displayVersion, "\d{1,4}\.\d{1,4}$").value
+        $maxMajor= [regex]::match( $displayVersion, "^\d{1,4}\.\d{1,4}").value
+        $maxMinor= [regex]::match( $displayVersion, "\d{1,4}\.\d{1,4}$").value
 	$updates= $reg.OpenSubKey( "$MainKey\Patches\").GetSubKeyNames()
 	If( $Updates) {
 		ForEach ($updatekey in $updates) {
@@ -94,6 +96,11 @@ Function getExchVersion( $Server) {
 		}
 	}
 	return "$maxMajor.$maxMinor"
+}
+
+If(-not( Get-Command Get-ExchangeServer -ErrorAction SilentlyContinue)) {
+    Write-Error 'Exchange Management Shell not loaded.'
+    Exit 1
 }
 
 $ExSrv= Get-ExchangeServer

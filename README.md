@@ -10,10 +10,10 @@ Outputs objects which can be post-processed or filtered.
 
 ### Usage
 
-The script takes no parameters, and runs against the current Exchange environment. 
+The script takes no parameters, and needs to be run from the Exchange Management Shell. 
 
 ```
-.\Get-ExchangeVersions.ps1
+.\Get-ExchangeVersion.ps1
 ```
 
 ### About
