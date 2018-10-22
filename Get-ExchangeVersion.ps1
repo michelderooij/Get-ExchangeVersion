@@ -10,7 +10,7 @@
 	THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE 
 	RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
 	
-	Version 1.32, January 13th, 2018
+	Version 1.33, October 22nd, 2018
 	
 	.DESCRIPTION
 	Retrieves Exchange server version information using registry for rollup info
@@ -30,6 +30,7 @@
         1.31 Fixed layout bug for 4-digit build no.
         1.32 Added EMS check
              Renamed to Get-ExchangeVersion
+        1.33 Added Exchange Server 2019 support
 
 	.EXAMPLE
 	Get-ExchangeVersion.ps1
@@ -62,6 +63,10 @@ Function getExchVersion( $Server) {
 					break
 				}
 				1 {
+					$prodguid= "442189DC8B9EA5040962A6BED9EC1F1F"
+					break
+				}
+				2 {
 					$prodguid= "442189DC8B9EA5040962A6BED9EC1F1F"
 					break
 				}
