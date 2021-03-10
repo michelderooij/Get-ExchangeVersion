@@ -96,22 +96,24 @@ Begin {
 		$MainKey= 'SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\{0}\' -f $prodguid
 
 		$displayVersion= $reg.OpenSubKey( ('{0}\InstallProperties' -f $MainKey)).GetValue( 'DisplayVersion')
-		$maxMajor= [regex]::match( $displayVersion, '^\d{1,4}\.\d{1,4}').value
-		$maxMinor= [regex]::match( $displayVersion, '\d{1,4}\.\d{1,4}$').value
-		$updates= $reg.OpenSubKey( ('{0}\Patches' -f $MainKey)).GetSubKeyNames()
+		$maxMajor = [regex]::match( $displayVersion, '^(?:(\d+)\.)?(?:(\d+)\.)?(?:(\d+)\.)?(\d+)$').captures.groups[1].value
+		$maxMinor = [regex]::match( $displayVersion, '^(?:(\d+)\.)?(?:(\d+)\.)?(?:(\d+)\.)?(\d+)$').captures.groups[2].value
+		$maxBuild = [regex]::match( $displayVersion, '^(?:(\d+)\.)?(?:(\d+)\.)?(?:(\d+)\.)?(\d+)$').captures.groups[3].value
+        $maxRevision = [regex]::match( $displayVersion, '^(?:(\d+)\.)?(?:(\d+)\.)?(?:(\d+)\.)?(\d+)$').captures.groups[4].value
+		$updates = $reg.OpenSubKey( ('{0}\Patches' -f $MainKey)).GetSubKeyNames()
 		If( $Updates) {
 			ForEach ($updatekey in $updates) {
-				$update= $reg.OpenSubKey( ('{0}\Patches\{1}' -f $MainKey, $updatekey)).GetValue( 'DisplayName')
-				$fullversion= [regex]::match( $update, '[0-9\.]*$').value
-				$major= [regex]::match( $fullversion, '^\d{1,3}\.\d{1,3}').value
-				$minor= [regex]::match( $fullversion, '\d{1,3}\.\d{1,3}$').value
-				If ($major -gt $maxMajor -or $major -ge $maxMajor -and $minor -gt $maxMinor) {
-					$maxMajor= $major
-					$maxMinor= $minor
+				$update = $reg.OpenSubKey( ('{0}\Patches\{1}' -f $MainKey, $updatekey)).GetValue( 'DisplayName')
+				$fullversion = [regex]::match( $update, '[0-9\.]*$').value
+				[Uint32]$build = [regex]::match( $fullversion, '^(?:(\d+)\.)?(?:(\d+)\.)?(?:(\d+)\.)?(\d+)$').captures.groups[3].value
+                [Uint32]$revision = [regex]::match( $fullversion, '^(?:(\d+)\.)?(?:(\d+)\.)?(?:(\d+)\.)?(\d+)$').captures.groups[4].value
+				If ($build -gt $maxBuild -or $build -ge $maxBuild -and $revision -gt $maxRevision) {
+					$maxBuild = $build
+					$maxRevision = $revision
 				}
 			}
 		}
-		return ('{0}.{1}' -f $maxMajor, $maxMinor)
+		return ('{0}.{1}.{2}.{3}' -f $maxMajor, $maxMinor, $maxBuild, $maxRevision)
     }
 
     If(-not( Get-Command Get-ExchangeServer -ErrorAction SilentlyContinue)) {
@@ -120,7 +122,7 @@ Begin {
 }
 Process {
     If($null -eq $ComputerName) {
-        $ComputerName= -Get-ExchangeServer -Identity $ENV:COMPUTERNAME
+        $ComputerName= Get-ExchangeServer -Identity $ENV:COMPUTERNAME
     }
     $ComputerName | ForEach-Object {
         If( $_.getType().FullName -eq 'Microsoft.Exchange.Data.Directory.Management.ExchangeServer') {
