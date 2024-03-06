@@ -1,16 +1,16 @@
 <#
-	.SYNOPSIS
-	Retrieves Exchange server version information using registry for rollup info
-	Outputs objects which can be post-processed or filtered.
+    .SYNOPSIS
+    Retrieves Exchange server version information using registry for rollup info
+    Outputs objects which can be post-processed or filtered.
        
-   	Michel de Rooij
-	michel@eightwone.com
-	http://eightwone.com
+    Michel de Rooij
+    michel@eightwone.com
+    http://eightwone.com
 	
-	THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE 
-	RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
+    THIS CODE IS MADE AVAILABLE AS IS, WITHOUT WARRANTY OF ANY KIND. THE ENTIRE 
+    RISK OF THE USE OR THE RESULTS FROM THE USE OF THIS CODE REMAINS WITH THE USER.
 	
-	Version 1.4, March 8th, 2021
+    Version 2.0, March 6th 2024
 	
 	.DESCRIPTION
 	Retrieves Exchange server version information using registry for rollup info
@@ -35,14 +35,16 @@
          Default operation mode is against local host
          Made pipeline friendly
          Small optimizations
+    2.00 Added Site in output
+         Added EMS-less operating mode (uses AD)
 
 	.EXAMPLE
 	Get-ExchangeVersion.ps1
 
     .EXAMPLE
-    Get-ExchangeServer | .\Get-ExchangeVersion.ps1
+    Get-ExchangeVersion.ps1 -Name EX1
 #>
-#Requires -Version 1.0
+#Requires -Version 3.0
 Param(
     [parameter( Position= 0, Mandatory= $false, ValueFromPipelineByPropertyName= $true)] 
     [alias('Name')]
@@ -50,9 +52,11 @@ Param(
 )
 
 Begin {
-    # Scripts doesn't works for these roles and only for indicated versions
+    # Script doesn't works for these roles and only for indicated versions (as reported by Exchange, not AD)
     $NonValidRoles= ( 'ProvisionedServer', 'Edge')
     $ValidVersions= 8, 14, 15
+    #MBX=2,CAS=4,UM=16,HT=32,Edge=64 multirole servers:CAS/HT=36,CAS/MBX/HT=38,CAS/UM=20,E2k13 MBX=54,E2K13 CAS=16385,E2k13 CAS/MBX=16439
+    $ValidMsExchCurrentServerRole= 2,4,16,20,32,36,38,54,64,16385,16439
 
     Function getExchVersion {
         Param(
@@ -114,51 +118,103 @@ Begin {
 		return ('{0}.{1}' -f $maxMajor, $maxMinor)
     }
 
-    If(-not( Get-Command Get-ExchangeServer -ErrorAction SilentlyContinue)) {
-        Throw 'Exchange Management Shell not loaded.'
+    $ExchangeLessMode= $False
+    If( -not( Get-Command Get-ExchangeServer -ErrorAction SilentlyContinue)) {
+        If( -not( Get-Command Get-ADObject -ErrorAction SilentlyContinue)) {
+            Throw 'Exchange Management Shell not loaded and Active Directory module not available.'
+        }
+        Else {
+            Write-Warning ('Using Active Directory information, will only report CU level')
+            $ExchangeLessMode= $True
+        }
     }
 }
 Process {
     If($null -eq $ComputerName) {
-        $ComputerName= -Get-ExchangeServer -Identity $ENV:COMPUTERNAME
+        If( $ExchangeLessMode) {
+            $ComputerName= Get-ADObject -Filter "objectCategory -eq 'msExchExchangeServer'" -SearchBase (Get-ADRootDSE).ConfigurationNamingContext
+        }
+        Else {
+            $ComputerName= Get-ExchangeServer -Identity $ENV:COMPUTERNAME
+        }
     }
     $ComputerName | ForEach-Object {
-        If( $_.getType().FullName -eq 'Microsoft.Exchange.Data.Directory.Management.ExchangeServer') {
+
+        If( 'Microsoft.Exchange.Data.Directory.Management.ExchangeServer' -eq $_.getType().FullName) {
             $ThisServer= $_
         }
         Else {
-            $ThisServer= Get-ExchangeServer -Identity $_
-        }
-
-	$bValid= $False
-	If ($ValidVersions -contains $ThisServer.AdminDisplayVersion.Major) {
-            If( $NonValidRoles.Contains( $ThisServer.ServerRole)) {
-                Write-Warning ('Script does not work on Exchange server {0} with roles {1}' -f $ThisServer.Name, ($NonValidRoles -join ','))
+            If( $ExchangeLessMode) {
+                # Retrieve object with necessary properties
+                $ThisServer= $_ | Get-ADObject -Properties *
             }
             Else {
-                $bValid= $True
+                $ThisServer= Get-ExchangeServer -Identity $_
             }
-	}
-	Else {
-            Write-Warning ('Script does not work on Exchange server {0} with version {1}' -f $ThisServer.Name, $ThisServer.AdminDisplayVersion.Major)
-	}
+        }
 
-	$bOnline= Test-Connection $ThisServer.Name -Count 1 -ErrorAction SilentlyContinue
+        $outObj= New-Object Object
 
-	$outObj= New-Object Object
-	$outObj | Add-Member -MemberType NoteProperty Server $ThisServer.Name
-	If( $bValid -and $bOnline) {
-		$outObj | Add-Member -MemberType NoteProperty Accessible $true
-		$outObj | Add-Member -MemberType NoteProperty AdminVersion $ThisServer.AdminDisplayVersion
-		$exVer= getExchVersion -Server $ThisServer
-		$outObj | Add-Member -MemberType NoteProperty ExchangeVersion $exVer
-	}
-	Else {
-		$outObj | Add-Member -MemberType NoteProperty Accessible $false
-		$outObj | Add-Member -MemberType NoteProperty AdminVersion "N/A"
-		$outObj | Add-Member -MemberType NoteProperty ExchangeVersion "N/A"
-	}
-	$outObj
+        If( $ExchangeLessMode) {
+            $outObj | Add-Member -MemberType NoteProperty Server -Value $ThisServer.CN
+        }
+        Else {
+            $outObj | Add-Member -MemberType NoteProperty Server -Value $ThisServer.Name
+        }
+
+        # Only try remote reg access when not using EMS or when using EMS and it's not Edge server role
+        $bValid= $False
+        If( $ExchangeLessMode) {
+            If( $ThisServer.MsExchCurrentServerRoles -in $ValidMsExchCurrentServerRole) {
+                Write-Warning ('Script does not work on Exchange server {0} with msExchCurrentServerRoles #{1}' -f $outobj.Server, $ThisServer.MsExchCurrentServerRoles)
+            }
+        }
+        Else {
+            If ($ValidVersions -contains $ThisServer.AdminDisplayVersion.Major) {
+                If( $NonValidRoles.Contains( $ThisServer.ServerRole)) {
+                    Write-Warning ('Script does not work on Exchange server {0} with roles {1}' -f $outobj.Server, ($NonValidRoles -join ','))
+                }
+                Else {
+                    $bValid= $True
+                }
+
+            }
+            Else {
+                Write-Warning ('Script does not work on Exchange server {0} with version {1}' -f $outobj.Server, $ThisServer.AdminDisplayVersion.Major)
+            }
+	    }
+
+        $bOnline= Test-Connection -ComputerName $outobj.Server -Count 1 -ErrorAction SilentlyContinue
+
+        If( $ExchangeLessMode) {
+            $outObj | Add-Member -MemberType NoteProperty -Name Site -Value (($ThisServer.msExchServerSite -split ',')[0] -split '=')[1]
+        }
+        Else {
+            $outObj | Add-Member -MemberType NoteProperty -Name Site -Value ($ThisServer.Site -split '/')[-1]
+        }
+
+        If( $bValid -and $bOnline) {
+            $outObj | Add-Member -MemberType NoteProperty -Name Accessible -Value $true
+            If( $ExchangeLessMode) {
+            }
+            Else {
+                $exVer= getExchVersion -Server $ThisServer 
+                $outObj | Add-Member -MemberType NoteProperty -Name ExchangeVersion -Value $exVer
+            }
+        }
+        Else {
+            $outObj | Add-Member -MemberType NoteProperty Accessible $false
+            $outObj | Add-Member -MemberType NoteProperty ExchangeVersion "N/A"
+        }
+
+        If( $ExchangeLessMode) {
+            $outObj | Add-Member -MemberType NoteProperty -Name AdminVersion -Value $ThisServer.serialNumber[0]
+        }
+        Else {
+            $outObj | Add-Member -MemberType NoteProperty -Name AdminVersion -Value $ThisServer.AdminDisplayVersion
+        }
+
+        $outObj
     }
 }
 End {
